@@ -4,3 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+i2cdev = "0.6.1"
+thiserror = "2.0.11"
