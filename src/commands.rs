@@ -2,11 +2,11 @@ use std::ops::Range;
 
 /// This function encodes a command into a byte vector that can be sent back over the wire to the
 /// pololu motoron device.
-pub fn encode_command<C: Command>(c: &C, with_crc: bool) -> Result<Vec<u8>> {
-    let len = 1 + c.num_bytes() + if with_crc { 1 } else { 0 };
+pub fn encode_command<C: Command>(cmd: &C, with_crc: bool) -> Result<Vec<u8>> {
+    let len = 1 + cmd.num_bytes() + if with_crc { 1 } else { 0 };
     let mut response = vec![0; len];
-    response[0] = c.code();
-    c.encode_body(&mut response[1..])?;
+    response[0] = cmd.code();
+    cmd.encode_body(&mut response[1..])?;
     if with_crc {
         response[len - 1] = get_crc(&response[..len - 1]);
     }
@@ -66,6 +66,11 @@ pub trait Command {
     /// [`Self::num_bytes`] function. If it's longer, we will only write out the number of bytes
     /// returned by `num_bytes`.
     fn encode_body(&self, bytes: &mut [u8]) -> Result<()>;
+    /// All commands should know the length of the response. This function should always return
+    /// that length
+    fn expected_response_bytes(&self) -> usize {
+        0
+    }
 }
 
 pub trait Response: Sized {
@@ -141,18 +146,24 @@ macro_rules! check_value_expr {
     };
 }
 
-pub struct GetFirwmwareVersion;
-impl Command for GetFirwmwareVersion {
+pub struct GetFirmwareVersion;
+impl Command for GetFirmwareVersion {
     type Response = FirmwareVersion;
     plain_code!(0x87);
     plain_byte_count!(0);
     noop_encode!();
+    fn expected_response_bytes(&self) -> usize {
+        4
+    }
 }
 
+/// The firmware version information provided by the chip
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FirmwareVersion {
-    product_id: u16,
-    minor_fw_version: u8,
-    major_fw_version: u8,
+    /// Product ID, as per the table in [this page](https://www.pololu.com/docs/0J84/9#cmd-get-firmware-version)
+    pub product_id: u16,
+    pub minor_fw_version: u8,
+    pub major_fw_version: u8,
 }
 
 impl Response for FirmwareVersion {
@@ -205,6 +216,9 @@ impl Command for ReadEeprom {
         bytes[0] = self.offset;
         bytes[1] = self.length;
         Ok(())
+    }
+    fn expected_response_bytes(&self) -> usize {
+        self.length.into()
     }
 }
 
@@ -259,6 +273,9 @@ impl Command for GetVariables {
         bytes[1] = self.offset;
         bytes[2] = self.length;
         Ok(())
+    }
+    fn expected_response_bytes(&self) -> usize {
+        self.length.into()
     }
 }
 
@@ -496,8 +513,12 @@ impl Command for MultiDeviceErrorCheck {
         bytes[1] = self.device_count;
         Ok(())
     }
+    fn expected_response_bytes(&self) -> usize {
+        1
+    }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MultiDeviceErrorCheckReponse {
     // 0x00
     ErrorActive,
