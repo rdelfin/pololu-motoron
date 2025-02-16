@@ -13,6 +13,18 @@ pub fn encode_command<C: Command>(c: &C, with_crc: bool) -> Result<Vec<u8>> {
     Ok(response)
 }
 
+pub fn decode_response<C: Command>(mut data: Vec<u8>, with_crc: bool) -> Result<C::Response> {
+    if with_crc {
+        let actual = data.pop().ok_or(Error::NoCrcByte)?;
+        let expected = get_crc(&data);
+        if expected != actual {
+            return Err(Error::InvalidResponseCrc { expected, actual });
+        }
+    }
+
+    C::Response::parse(data)
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("field {field} has an invalid value (is {value}, can only be between {min} and {max}")]
@@ -28,6 +40,12 @@ pub enum Error {
         "creating multi-device write with different command codes, all should be the same code"
     )]
     DifferentCodeMultiDeviceWrite,
+    #[error("response of invalid length was received (expected {expected}, got {actual})")]
+    InvalidResponseLength { expected: usize, actual: usize },
+    #[error("response crc check failed (expected {expected}, got {actual})")]
+    InvalidResponseCrc { expected: u8, actual: u8 },
+    #[error("expected CRC but got response with no bytes")]
+    NoCrcByte,
 }
 
 pub type Result<T = (), E = Error> = std::result::Result<T, E>;
@@ -37,7 +55,7 @@ pub type Result<T = (), E = Error> = std::result::Result<T, E>;
 /// data and this trait together with [`encode_command`] will provide a way of interacting with the
 /// protocol.
 pub trait Command {
-    type Response;
+    type Response: Response;
     /// This is the command code of this command used in the i2c protocol
     fn code(&self) -> u8;
     /// This is the number of bytes used up by the arguments **EXCLUDING THE COMMAND CODE** over
@@ -48,6 +66,29 @@ pub trait Command {
     /// [`Self::num_bytes`] function. If it's longer, we will only write out the number of bytes
     /// returned by `num_bytes`.
     fn encode_body(&self, bytes: &mut [u8]) -> Result<()>;
+}
+
+pub trait Response: Sized {
+    fn parse(data: Vec<u8>) -> Result<Self>;
+}
+
+impl Response for () {
+    fn parse(data: Vec<u8>) -> Result<()> {
+        if data.len() != 0 {
+            Err(Error::InvalidResponseLength {
+                expected: 0,
+                actual: data.len(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Response for Vec<u8> {
+    fn parse(data: Vec<u8>) -> Result<Vec<u8>> {
+        Ok(data)
+    }
 }
 
 macro_rules! plain_code {
@@ -112,6 +153,23 @@ pub struct FirmwareVersion {
     product_id: u16,
     minor_fw_version: u8,
     major_fw_version: u8,
+}
+
+impl Response for FirmwareVersion {
+    fn parse(data: Vec<u8>) -> Result<FirmwareVersion> {
+        if data.len() != 4 {
+            Err(Error::InvalidResponseLength {
+                expected: 4,
+                actual: data.len(),
+            })
+        } else {
+            Ok(FirmwareVersion {
+                product_id: u16::from(data[0]) | (u16::from(data[1]) << 8),
+                minor_fw_version: data[2],
+                major_fw_version: data[3],
+            })
+        }
+    }
 }
 
 pub struct SetProtocolOptions {
@@ -445,6 +503,24 @@ pub enum MultiDeviceErrorCheckReponse {
     ErrorActive,
     // 0x3C
     Ok,
+    Unknown(u8),
+}
+
+impl Response for MultiDeviceErrorCheckReponse {
+    fn parse(data: Vec<u8>) -> Result<MultiDeviceErrorCheckReponse> {
+        if data.len() != 1 {
+            Err(Error::InvalidResponseLength {
+                expected: 1,
+                actual: data.len(),
+            })
+        } else {
+            Ok(match data[0] {
+                0x00 => MultiDeviceErrorCheckReponse::ErrorActive,
+                0x3C => MultiDeviceErrorCheckReponse::Ok,
+                v => MultiDeviceErrorCheckReponse::Unknown(v),
+            })
+        }
+    }
 }
 
 pub struct MultiDeviceWrite<C: Command> {
