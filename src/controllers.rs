@@ -25,6 +25,8 @@ pub enum ControllerType {
 }
 
 impl ControllerType {
+    /// This function returns how many motor channels this specific controller supports, usually
+    /// from 1 to 3.
     pub fn motor_channels(&self) -> u8 {
         match self {
             ControllerType::M1T550

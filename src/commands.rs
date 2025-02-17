@@ -15,7 +15,10 @@ pub fn encode_command<C: Command>(cmd: &C, with_crc: bool) -> Result<Vec<u8>> {
 
 pub fn decode_response<C: Command>(mut data: Vec<u8>, with_crc: bool) -> Result<C::Response> {
     if with_crc {
-        let actual = data.pop().ok_or(Error::NoCrcByte)?;
+        let actual = data.pop().ok_or(Error::InvalidResponseLength {
+            expected: 1,
+            actual: 0,
+        })?;
         let expected = get_crc(&data);
         if expected != actual {
             return Err(Error::InvalidResponseCrc { expected, actual });
@@ -25,8 +28,11 @@ pub fn decode_response<C: Command>(mut data: Vec<u8>, with_crc: bool) -> Result<
     C::Response::parse(data)
 }
 
+/// Errors relating to the encoding of commands and decoding of responses.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    /// Returned if a value provided is outside a valid range, as defined by that command. We wil
+    /// provide the ranges (inclusive), the value that was sent, as well as the field's name
     #[error("field {field} has an invalid value (is {value}, can only be between {min} and {max}")]
     InvalidValue {
         min: i32,
@@ -34,12 +40,15 @@ pub enum Error {
         value: i32,
         field: &'static str,
     },
+
+    /// Returned if the response returned is of an unexpected length
     #[error("response of invalid length was received (expected {expected}, got {actual})")]
     InvalidResponseLength { expected: usize, actual: usize },
+
+    /// Returned if the response contains an invalid CRC. This is usually the result of corruption
+    /// or a bug in the CRC check calculation.
     #[error("response crc check failed (expected {expected}, got {actual})")]
     InvalidResponseCrc { expected: u8, actual: u8 },
-    #[error("expected CRC but got response with no bytes")]
-    NoCrcByte,
 }
 
 pub type Result<T = (), E = Error> = std::result::Result<T, E>;
