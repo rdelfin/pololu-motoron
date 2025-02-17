@@ -1,7 +1,7 @@
 use crate::commands::{
     decode_response, encode_command, Command, GetFirmwareVersion, SetProtocolOptions,
 };
-use commands::{SetSpeed, SpeedMode};
+use commands::{SetAllSpeeds, SetAllSpeedsUsingBuffers, SetSpeed, SpeedMode, SpeedModeNoBuffer};
 use i2cdev::core::I2CDevice;
 use i2cdev::linux::{LinuxI2CDevice, LinuxI2CError};
 use std::path::Path;
@@ -33,6 +33,10 @@ pub enum Error {
         "provided motor {provided} is higher than the number of supported motors {num_motors}"
     )]
     InvalidMotor { provided: u8, num_motors: u8 },
+    #[error(
+        "in setting all speeds, you provided {provided} speeds, but this controller has {actual} motors"
+    )]
+    NotEnoughSpeeds { provided: u8, actual: u8 },
 }
 
 pub type Result<T = (), E = Error> = std::result::Result<T, E>;
@@ -55,6 +59,64 @@ impl PololuDevice {
     }
 
     pub fn set_speed(&mut self, motor_idx: u8, speed: f32) -> Result {
+        let cmd = self.get_speed_cmd(motor_idx, speed, SpeedMode::Normal)?;
+        self.write_command(&cmd)?;
+        Ok(())
+    }
+
+    pub fn set_all_speeds(&mut self, speeds: &[f32]) -> Result {
+        let num_motors = self.controller_type.motor_channels();
+        if usize::from(num_motors) != speeds.len() {
+            return Err(Error::NotEnoughSpeeds {
+                provided: speeds.len().try_into().unwrap(),
+                actual: num_motors,
+            });
+        }
+        let speeds = speeds
+            .into_iter()
+            .map(|speed| {
+                if speed.abs() > 1. {
+                    Err(Error::InvalidSpeed(*speed))
+                } else {
+                    Ok((*speed * 800.) as i16)
+                }
+            })
+            .collect::<Result<_>>()?;
+        let cmd = SetAllSpeeds {
+            mode: SpeedMode::Normal,
+            speeds,
+        };
+        self.write_command(&cmd)?;
+        Ok(())
+    }
+
+    pub fn set_multi_speed(&mut self, speeds: &[(u8, f32)]) -> Result {
+        // First buffer all the requested speeds
+        let cmds = speeds
+            .into_iter()
+            .map(|(motor_idx, speed)| self.get_speed_cmd(*motor_idx, *speed, SpeedMode::Buffered))
+            .collect::<Result<Vec<_>>>()?;
+        for cmd in cmds {
+            self.write_command(&cmd)?;
+        }
+
+        // Then commit them to the controller for simultaneous action
+        let cmd = SetAllSpeedsUsingBuffers {
+            mode: SpeedModeNoBuffer::Normal,
+        };
+        self.write_command(&cmd)?;
+
+        Ok(())
+    }
+
+    pub fn firmware_version(&mut self) -> Result<FirmwareVersion> {
+        let cmd = GetFirmwareVersion;
+        self.write_command(&cmd)?;
+        let firmware_version = self.read_command(&cmd)?;
+        Ok(firmware_version)
+    }
+
+    fn get_speed_cmd(&self, motor_idx: u8, speed: f32, mode: SpeedMode) -> Result<SetSpeed> {
         let num_motors = self.controller_type.motor_channels();
         if speed.abs() > 1. {
             Err(Error::InvalidSpeed(speed))
@@ -65,21 +127,12 @@ impl PololuDevice {
             })
         } else {
             let speed = (speed * 800.) as i16;
-            let cmd = SetSpeed {
-                mode: SpeedMode::Normal,
+            Ok(SetSpeed {
+                mode,
                 speed,
                 motor: motor_idx + 1,
-            };
-            self.write_command(&cmd)?;
-            Ok(())
+            })
         }
-    }
-
-    pub fn firmware_version(&mut self) -> Result<FirmwareVersion> {
-        let cmd = GetFirmwareVersion;
-        self.write_command(&cmd)?;
-        let firmware_version = self.read_command(&cmd)?;
-        Ok(firmware_version)
     }
 
     fn write_protocol_options(&mut self) -> Result {

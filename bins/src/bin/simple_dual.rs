@@ -20,8 +20,7 @@ fn main() -> anyhow::Result<()> {
     let mut device = PololuDevice::new(ControllerType::M2T256, args.device, args.address)?;
 
     loop {
-        device.set_speed(0, 0.5)?;
-        device.set_speed(1, 0.5)?;
+        device.set_all_speeds(&[0.5, 0.8])?;
         std::thread::sleep(Duration::from_secs_f32(0.005));
     }
 }
