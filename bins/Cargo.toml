@@ -6,6 +6,9 @@ edition = "2021"
 [[bin]]
 name = "version"
 
+[[bin]]
+name = "simple_dual"
+
 [dependencies]
 pololu-motoron = { version = "0.1.0", path = ".." }
 anyhow = "1.0.95"
