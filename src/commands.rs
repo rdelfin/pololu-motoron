@@ -34,12 +34,6 @@ pub enum Error {
         value: i32,
         field: &'static str,
     },
-    #[error("creating multi-device write with commands of different length, all should be the same length")]
-    DifferentLengthMultiDeviceWrite,
-    #[error(
-        "creating multi-device write with different command codes, all should be the same code"
-    )]
-    DifferentCodeMultiDeviceWrite,
     #[error("response of invalid length was received (expected {expected}, got {actual})")]
     InvalidResponseLength { expected: usize, actual: usize },
     #[error("response crc check failed (expected {expected}, got {actual})")]
@@ -547,28 +541,19 @@ impl Response for MultiDeviceErrorCheckReponse {
 pub struct MultiDeviceWrite<C: Command> {
     pub starting_device_number: u8,
     pub device_count: u8,
-    pub commands: Vec<C>,
+    pub command: C,
 }
 impl<C: Command> Command for MultiDeviceWrite<C> {
     type Response = ();
     plain_code!(0xF9);
     fn num_bytes(&self) -> usize {
-        let commands_bytes: usize = self.commands.iter().map(|c| c.num_bytes()).sum();
-        4 + commands_bytes
+        4 + self.command.num_bytes()
     }
     fn encode_body(&self, bytes: &mut [u8]) -> Result<()> {
         check_value!(self, starting_device_number, 0, 0x7F);
         check_value!(self, device_count, 0, 0x7F);
-        if self.commands.len() > 0x7F {
-            return Err(Error::InvalidValue {
-                min: 0,
-                max: 0x7F,
-                value: self.commands.len().try_into().unwrap(),
-                field: "commands",
-            });
-        }
-        let command_length = self.commands.first().map(|c| c.num_bytes()).unwrap_or(0);
-        let code = self.commands.first().map(|c| c.code()).unwrap_or(0);
+        let command_length = self.command.num_bytes();
+        let code = self.command.code();
 
         bytes[0] = self.starting_device_number;
         bytes[1] = self.device_count;
@@ -576,17 +561,7 @@ impl<C: Command> Command for MultiDeviceWrite<C> {
             .try_into()
             .expect("command length guaranteed to be under 0x7F");
         bytes[3] = code;
-        let mut start_idx = 4;
-        for cmd in &self.commands {
-            if cmd.code() != code {
-                return Err(Error::DifferentCodeMultiDeviceWrite);
-            }
-            if cmd.num_bytes() != command_length {
-                return Err(Error::DifferentLengthMultiDeviceWrite);
-            }
-            cmd.encode_body(&mut bytes[start_idx..])?;
-            start_idx += command_length;
-        }
+        self.command.encode_body(&mut bytes[4..])?;
         Ok(())
     }
 }
