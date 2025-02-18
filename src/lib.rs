@@ -273,7 +273,6 @@ impl Device {
 
     fn write_command<C: Command>(&mut self, cmd: &C) -> Result {
         let data = encode_command(cmd, self.cmd_crc)?;
-        println!("Writing command: {data:?}");
         self.device.write(&data[..])?;
         Ok(())
     }
