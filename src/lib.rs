@@ -29,10 +29,13 @@
 use crate::commands::{
     decode_response, encode_command, Command, GetFirmwareVersion, SetProtocolOptions,
 };
-use commands::{SetAllSpeeds, SetAllSpeedsUsingBuffers, SetSpeed, SpeedMode, SpeedModeNoBuffer};
+use commands::{
+    Reinitialise, SetAllSpeeds, SetAllSpeedsUsingBuffers, SetSpeed, SpeedMode, SpeedModeNoBuffer,
+};
 use i2cdev::core::I2CDevice;
 use i2cdev::linux::{LinuxI2CDevice, LinuxI2CError};
 use std::path::Path;
+use std::time::Duration;
 
 mod commands;
 mod controllers;
@@ -113,6 +116,23 @@ impl Device {
         };
         device.write_protocol_options()?;
         Ok(device)
+    }
+
+    /// Reinitialises the device and returns all variables back to default values (though we do
+    /// re-write the protocol options before returning).
+    pub fn reinitialise(&mut self) -> Result {
+        self.write_command(&Reinitialise)?;
+        self.write_protocol_options()?;
+        Ok(())
+    }
+
+    /// Resets the device fully, similar to a power reboot.We also re-write the protocol options
+    /// before returning).
+    pub fn reset(&mut self) -> Result {
+        self.write_command(&Reinitialise)?;
+        std::thread::sleep(Duration::from_millis(10));
+        self.write_protocol_options()?;
+        Ok(())
     }
 
     /// Call this function to set the speed of a specific motor. Note that speeds reset back to 0
