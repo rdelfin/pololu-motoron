@@ -118,11 +118,15 @@ impl Device {
         Ok(device)
     }
 
-    /// Reinitialises the device and returns all variables back to default values (though we do
-    /// re-write the protocol options before returning).
+    /// Reinitialises the device and returns all variables back to default values. We do re-write
+    /// the protocol options, as well as clearing the reset status flag before returning
     pub fn reinitialise(&mut self) -> Result {
         self.write_command(&Reinitialise)?;
-        self.write_protocol_options()
+        self.write_protocol_options()?;
+        self.clear_latched_status_flags(ClearLatchedStatusFlags {
+            reset: true,
+            ..Default::default()
+        })
     }
 
     /// This disables all CRC checks on the device, both command and resposnse checks
@@ -139,12 +143,16 @@ impl Device {
         self.write_protocol_options()
     }
 
-    /// Resets the device fully, similar to a power reboot.We also re-write the protocol options
-    /// before returning).
+    /// Resets the device fully, similar to a power reboot. We also re-write the protocol options
+    /// and clear the reset status flag before returning.
     pub fn reset(&mut self) -> Result {
         self.write_command(&Reinitialise)?;
         std::thread::sleep(Duration::from_millis(10));
-        self.write_protocol_options()
+        self.write_protocol_options()?;
+        self.clear_latched_status_flags(ClearLatchedStatusFlags {
+            reset: true,
+            ..Default::default()
+        })
     }
 
     /// Call this function to set the speed of a specific motor. Note that speeds reset back to 0
