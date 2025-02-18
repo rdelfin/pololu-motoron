@@ -1,5 +1,5 @@
 use clap::Parser;
-use pololu_motoron::ControllerType;
+use pololu_motoron::{ClearLatchedStatusFlags, ControllerType};
 use std::{path::PathBuf, time::Duration};
 
 /// Program that prints the version of the firmware on a given Pololu Motoron device
@@ -19,9 +19,14 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let mut device =
         pololu_motoron::Device::new(ControllerType::M2T256, args.device, args.address)?;
+    device.reinitialise()?;
+    device.clear_latched_status_flags(ClearLatchedStatusFlags {
+        reset: true,
+        ..Default::default()
+    })?;
 
     loop {
         device.set_all_speeds(&[0.5, 0.8])?;
-        std::thread::sleep(Duration::from_secs_f32(0.005));
+        std::thread::sleep(Duration::from_secs_f32(0.01));
     }
 }

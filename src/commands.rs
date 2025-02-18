@@ -328,19 +328,45 @@ impl Command for ClearMotorFault {
     }
 }
 
+#[derive(Default)]
 pub struct ClearLatchedStatusFlags {
-    pub flags: u16,
+    pub protocol_error: bool,
+    pub crc_error: bool,
+    pub command_timeout_latched: bool,
+    pub motor_fault_latched: bool,
+    pub no_power_latched: bool,
+    pub uart_error: bool,
+    pub reset: bool,
+    pub command_timeout: bool,
+    pub motor_faulting: bool,
+    pub no_power: bool,
+    pub error_active: bool,
+    pub motor_output_enabled: bool,
+    pub motor_driving: bool,
 }
 impl Command for ClearLatchedStatusFlags {
     type Response = ();
     plain_code!(0xA9);
     plain_byte_count!(2);
     fn encode_body(&self, bytes: &mut [u8]) -> Result<()> {
-        check_value!(self, flags, 0, 0x3FF);
-        bytes[0] = (self.flags & 0x7F)
+        let flags: u16 = (u16::from(self.motor_driving) << 15)
+            | (u16::from(self.motor_output_enabled) << 14)
+            | (u16::from(self.error_active) << 13)
+            | (u16::from(self.no_power) << 12)
+            | (u16::from(self.motor_faulting) << 11)
+            | (u16::from(self.command_timeout) << 10)
+            | (u16::from(self.reset) << 9)
+            | (u16::from(self.uart_error) << 5)
+            | (u16::from(self.no_power_latched) << 4)
+            | (u16::from(self.motor_fault_latched) << 3)
+            | (u16::from(self.command_timeout_latched) << 2)
+            | (u16::from(self.crc_error) << 1)
+            | (u16::from(self.protocol_error) << 0);
+
+        bytes[0] = (flags & 0x7F)
             .try_into()
             .expect("could not convert u16 to u8 with mask");
-        bytes[1] = ((self.flags >> 7) & 0x7)
+        bytes[1] = ((flags >> 7) & 0x7)
             .try_into()
             .expect("could not convert u16 to u8 with mask");
         Ok(())

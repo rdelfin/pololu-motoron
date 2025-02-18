@@ -40,7 +40,7 @@ use std::time::Duration;
 mod commands;
 mod controllers;
 
-pub use crate::commands::{Error as CommandsError, FirmwareVersion};
+pub use crate::commands::{ClearLatchedStatusFlags, Error as CommandsError, FirmwareVersion};
 pub use crate::controllers::ControllerType;
 
 /// Represents a Pololu Motoron motor controller. Use this to control a single motor controller on
@@ -122,8 +122,21 @@ impl Device {
     /// re-write the protocol options before returning).
     pub fn reinitialise(&mut self) -> Result {
         self.write_command(&Reinitialise)?;
-        self.write_protocol_options()?;
-        Ok(())
+        self.write_protocol_options()
+    }
+
+    /// This disables all CRC checks on the device, both command and resposnse checks
+    pub fn disable_crc(&mut self) -> Result {
+        self.cmd_crc = false;
+        self.res_crc = false;
+        self.write_protocol_options()
+    }
+
+    /// This enables all CRC checks on the device, both command and resposnse checks
+    pub fn enable_crc(&mut self) -> Result {
+        self.cmd_crc = true;
+        self.res_crc = true;
+        self.write_protocol_options()
     }
 
     /// Resets the device fully, similar to a power reboot.We also re-write the protocol options
@@ -131,8 +144,7 @@ impl Device {
     pub fn reset(&mut self) -> Result {
         self.write_command(&Reinitialise)?;
         std::thread::sleep(Duration::from_millis(10));
-        self.write_protocol_options()?;
-        Ok(())
+        self.write_protocol_options()
     }
 
     /// Call this function to set the speed of a specific motor. Note that speeds reset back to 0
@@ -145,8 +157,7 @@ impl Device {
     /// * `speed`     - The speed to set the motor to, as a floating point between -1.0 and 1.0.
     pub fn set_speed(&mut self, motor_idx: u8, speed: f32) -> Result {
         let cmd = self.get_speed_cmd(motor_idx, speed, SpeedMode::Normal)?;
-        self.write_command(&cmd)?;
-        Ok(())
+        self.write_command(&cmd)
     }
 
     /// Call this function to set the speed of all motors simultaneously. Note that, much like
@@ -180,8 +191,7 @@ impl Device {
             mode: SpeedMode::Normal,
             speeds,
         };
-        self.write_command(&cmd)?;
-        Ok(())
+        self.write_command(&cmd)
     }
 
     /// Call this function to set the speed of multiple motors simultaneously. Note that, much like
@@ -209,9 +219,11 @@ impl Device {
         let cmd = SetAllSpeedsUsingBuffers {
             mode: SpeedModeNoBuffer::Normal,
         };
-        self.write_command(&cmd)?;
+        self.write_command(&cmd)
+    }
 
-        Ok(())
+    pub fn clear_latched_status_flags(&mut self, flags: ClearLatchedStatusFlags) -> Result {
+        self.write_command(&flags)
     }
 
     /// Call this function to obtain the firmware version reported by the device.
@@ -253,6 +265,7 @@ impl Device {
 
     fn write_command<C: Command>(&mut self, cmd: &C) -> Result {
         let data = encode_command(cmd, self.cmd_crc)?;
+        println!("Writing command: {data:?}");
         self.device.write(&data[..])?;
         Ok(())
     }
